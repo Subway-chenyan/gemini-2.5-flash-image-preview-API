@@ -9,9 +9,11 @@ from datetime import datetime
 import google.genai as genai
 from google.genai import types
 import base64
+from PIL import Image
+from io import BytesIO
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'  # Change this in production
+app.secret_key = 'AIzaSyAwPNGNGidXAOoRYdtR43osnbWXNIxdLFs'  # Change this in production
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -141,6 +143,9 @@ def generate_content():
         else:
             modalities = ['TEXT']
         
+        # Record API call start time
+        api_call_start = datetime.now()
+        
         # Make API call
         response = client.models.generate_content(
             model=model_name,
@@ -154,6 +159,10 @@ def generate_content():
                 response_modalities=modalities
             )
         )
+        
+        # Record API call end time
+        api_call_end = datetime.now()
+        api_call_duration = (api_call_end - api_call_start).total_seconds()
 
         # Process response - support both text and image outputs
         response_text = ""
@@ -169,14 +178,31 @@ def generate_content():
                     
                     # Handle image parts (inline_data)
                     elif hasattr(part, 'inline_data') and part.inline_data:
-                        # Save binary image data
+                        # Save binary image data using PIL for better compatibility
                         image_data = part.inline_data.data
                         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # Include milliseconds
                         filename = f'generated_image_{timestamp}_{i}.png'
                         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                         
-                        with open(filepath, 'wb') as f:
-                            f.write(base64.b64decode(image_data))
+                        # Use PIL to properly handle and save the image
+                        try:
+                            # If data is base64 encoded, decode it first
+                            if isinstance(image_data, str):
+                                decoded_data = base64.b64decode(image_data)
+                            else:
+                                decoded_data = image_data
+                            
+                            # Open image with PIL and save
+                            image = Image.open(BytesIO(decoded_data))
+                            image.save(filepath, 'PNG')
+                        except Exception as img_error:
+                            # Fallback to direct binary write if PIL fails
+                            print(f"PIL save failed, using fallback: {img_error}")
+                            with open(filepath, 'wb') as f:
+                                if isinstance(image_data, str):
+                                    f.write(base64.b64decode(image_data))
+                                else:
+                                    f.write(image_data)
                         
                         generated_images.append(filename)
                         
@@ -190,13 +216,36 @@ def generate_content():
         if not response_text and not generated_images:
             response_text = response.text if hasattr(response, 'text') else str(response)
         
+        # Extract usage metadata if available
+        usage_metadata = {}
+        if hasattr(response, 'usage_metadata'):
+            usage_metadata = {
+                'prompt_token_count': getattr(response.usage_metadata, 'prompt_token_count', 0),
+                'candidates_token_count': getattr(response.usage_metadata, 'candidates_token_count', 0),
+                'total_token_count': getattr(response.usage_metadata, 'total_token_count', 0)
+            }
+        
+        # Prepare API call information
+        api_call_info = {
+            'request_time': api_call_start.isoformat(),
+            'response_time': api_call_end.isoformat(),
+            'duration_seconds': round(api_call_duration, 3),
+            'model_used': model_name,
+            'input_parts_count': len(parts),
+            'text_input_length': len(text_prompt) if text_prompt else 0,
+            'images_uploaded': len([p for p in parts if hasattr(p, 'inline_data') or (hasattr(p, '_pb') and hasattr(p._pb, 'inline_data'))]),
+            'response_modalities': modalities,
+            'usage_metadata': usage_metadata
+        }
+        
         result = {
             'success': True,
             'response': response_text,
             'model': model_name,
             'timestamp': datetime.now().isoformat(),
             'config': generation_config,
-            'generated_images': generated_images
+            'generated_images': generated_images,
+            'api_call_info': api_call_info
         }
 
         return jsonify(result)

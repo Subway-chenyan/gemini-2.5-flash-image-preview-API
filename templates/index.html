@@ -730,15 +730,56 @@
                     }
                     
                     responseContent.innerHTML = responseHtml;
-                    responseInfo.innerHTML = `
-                        <strong>模型:</strong> ${data.model}<br>
-                        <strong>时间:</strong> ${new Date(data.timestamp).toLocaleString()}<br>
-                        <strong>配置:</strong> Temperature: ${data.config.temperature}, Max Tokens: ${data.config.max_output_tokens}
+                    
+                    // Build detailed API call information
+                    let apiInfoHtml = `
+                        <div style="background: var(--bg-secondary); padding: 15px; border-radius: 4px; margin-top: 10px; border: 1px solid var(--border-color);">
+                            <h3 style="color: var(--neon-green); margin-bottom: 10px; font-size: 1.1rem;">📊 API调用信息</h3>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 0.9rem;">
+                                <div>
+                                    <strong style="color: var(--text-secondary);">模型:</strong> ${data.model}<br>
+                                    <strong style="color: var(--text-secondary);">调用时间:</strong> ${new Date(data.api_call_info.request_time).toLocaleString()}<br>
+                                    <strong style="color: var(--text-secondary);">响应时间:</strong> ${data.api_call_info.duration_seconds}秒<br>
+                                    <strong style="color: var(--text-secondary);">输入部分数:</strong> ${data.api_call_info.input_parts_count}
+                                </div>
+                                <div>
+                                    <strong style="color: var(--text-secondary);">文本长度:</strong> ${data.api_call_info.text_input_length} 字符<br>
+                                    <strong style="color: var(--text-secondary);">上传图片:</strong> ${data.api_call_info.images_uploaded} 张<br>
+                                    <strong style="color: var(--text-secondary);">响应模式:</strong> ${data.api_call_info.response_modalities.join(', ')}<br>
+                                    ${data.generated_images && data.generated_images.length > 0 ? `<strong style="color: var(--text-secondary);">生成图片:</strong> ${data.generated_images.length} 张` : ''}
+                                </div>
+                            </div>
                     `;
                     
-                    if (data.generated_images && data.generated_images.length > 0) {
-                        responseInfo.innerHTML += `<br><strong>生成图片数量:</strong> ${data.generated_images.length}`;
+                    // Add token usage information if available
+                    if (data.api_call_info.usage_metadata && data.api_call_info.usage_metadata.total_token_count > 0) {
+                        apiInfoHtml += `
+                            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--border-color);">
+                                <h4 style="color: var(--neon-green); margin-bottom: 8px; font-size: 1rem;">🔢 Token使用统计</h4>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 0.85rem;">
+                                    <div><strong style="color: var(--text-secondary);">输入Token:</strong> ${data.api_call_info.usage_metadata.prompt_token_count}</div>
+                                    <div><strong style="color: var(--text-secondary);">输出Token:</strong> ${data.api_call_info.usage_metadata.candidates_token_count}</div>
+                                    <div><strong style="color: var(--text-secondary);">总Token:</strong> ${data.api_call_info.usage_metadata.total_token_count}</div>
+                                </div>
+                            </div>
+                        `;
                     }
+                    
+                    // Add generation config
+                    apiInfoHtml += `
+                        <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--border-color);">
+                            <h4 style="color: var(--neon-green); margin-bottom: 8px; font-size: 1rem;">⚙️ 生成配置</h4>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.85rem;">
+                                <div><strong style="color: var(--text-secondary);">Temperature:</strong> ${data.config.temperature}</div>
+                                <div><strong style="color: var(--text-secondary);">Max Tokens:</strong> ${data.config.max_output_tokens}</div>
+                                <div><strong style="color: var(--text-secondary);">Top P:</strong> ${data.config.top_p}</div>
+                                <div><strong style="color: var(--text-secondary);">Top K:</strong> ${data.config.top_k}</div>
+                            </div>
+                        </div>
+                        </div>
+                    `;
+                    
+                    responseInfo.innerHTML = apiInfoHtml;
                     
                     showSuccess('内容生成成功！');
                 } else {
