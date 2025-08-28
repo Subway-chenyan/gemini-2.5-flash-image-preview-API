@@ -355,39 +355,8 @@ def test_api():
                 'error_type': 'unknown'
             }), 500
 
-# Vercel Serverless Function handler
-from werkzeug.wrappers import Response as WerkzeugResponse
-
-def handler(request):
-    """Vercel Serverless Function entry point"""
-    with app.test_request_context(
-        path=request.url.path,
-        method=request.method,
-        headers=dict(request.headers),
-        query_string=request.url.query,
-        data=request.body
-    ):
-        try:
-            # Process the request through Flask
-            response = app.full_dispatch_request()
-            
-            # Convert Flask response to Vercel response format
-            return WerkzeugResponse(
-                response=response.get_data(),
-                status=response.status_code,
-                headers=dict(response.headers),
-                mimetype=response.mimetype
-            )
-        except Exception as e:
-            # Handle errors
-            return WerkzeugResponse(
-                response=f'{{"error": "Internal server error: {str(e)}"}}'.encode(),
-                status=500,
-                headers={'Content-Type': 'application/json'}
-            )
-
-# Export for Vercel
-app_handler = app
+# Export the Flask app for Vercel
+# Vercel will automatically detect this as a WSGI application
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5010)
