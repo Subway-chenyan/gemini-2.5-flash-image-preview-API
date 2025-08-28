@@ -2,6 +2,7 @@ import os
 import base64
 import mimetypes
 from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
 import mimetypes
@@ -11,9 +12,13 @@ from google.genai import types
 import base64
 from PIL import Image
 from io import BytesIO
+import traceback
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your-secret-key-here')  # Use environment variable
+
+# Enable CORS for all routes
+CORS(app)
 
 # Configuration
 UPLOAD_FOLDER = '/tmp' if os.environ.get('VERCEL') else 'uploads'
@@ -26,6 +31,39 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 # Create upload directory if it doesn't exist (only for local development)
 if not os.environ.get('VERCEL'):
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Global error handler to ensure all errors return JSON
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Global exception handler to return JSON errors"""
+    # Log the full traceback for debugging
+    app.logger.error(f"Unhandled exception: {str(e)}")
+    app.logger.error(traceback.format_exc())
+    
+    # Return JSON error response
+    return jsonify({
+        'error': 'Internal server error',
+        'message': str(e),
+        'type': 'server_error'
+    }), 500
+
+@app.errorhandler(404)
+def handle_404(e):
+    """Handle 404 errors with JSON response"""
+    return jsonify({
+        'error': 'Not found',
+        'message': 'The requested resource was not found',
+        'type': 'not_found'
+    }), 404
+
+@app.errorhandler(405)
+def handle_405(e):
+    """Handle method not allowed errors with JSON response"""
+    return jsonify({
+        'error': 'Method not allowed',
+        'message': 'The requested method is not allowed for this resource',
+        'type': 'method_not_allowed'
+    }), 405
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -64,7 +102,10 @@ def generate_content():
     try:
         api_key = get_api_key()
         if not api_key:
-            return jsonify({'error': 'API key not found. Please set GEMINI_API_KEY environment variable or create key.txt file.'}), 400
+            return jsonify({
+                'error': 'API key not found. Please set GEMINI_API_KEY environment variable or create key.txt file.',
+                'type': 'auth_error'
+            }), 400
 
         # Get form data
         text_prompt = request.form.get('text_prompt', '')
@@ -131,7 +172,10 @@ def generate_content():
                 os.remove(file_path)
 
         if not parts:
-            return jsonify({'error': 'No content provided. Please provide text prompt or upload images.'}), 400
+            return jsonify({
+                'error': 'No content provided. Please provide text prompt or upload images.',
+                'type': 'validation_error'
+            }), 400
 
         # Create content
         content = types.Content(role="user", parts=parts)
@@ -259,7 +303,13 @@ def generate_content():
         return jsonify(result)
 
     except Exception as e:
-        return jsonify({'error': f'API call failed: {str(e)}'}), 500
+        app.logger.error(f"Generate content error: {str(e)}")
+        app.logger.error(traceback.format_exc())
+        return jsonify({
+            'error': 'Content generation failed',
+            'message': str(e),
+            'type': 'api_error'
+        }), 500
 
 @app.route('/api/models')
 def get_models():
@@ -267,7 +317,7 @@ def get_models():
     try:
         api_key = get_api_key()
         if not api_key:
-            return jsonify({'error': 'API key not found'}), 400
+            return jsonify({'error': 'API key not found', 'type': 'auth_error'}), 400
 
         client = genai.Client(api_key=api_key)
         
@@ -283,12 +333,27 @@ def get_models():
         return jsonify({'models': models})
     
     except Exception as e:
-        return jsonify({'error': f'Failed to fetch models: {str(e)}'}), 500
+        app.logger.error(f"Models fetch error: {str(e)}")
+        app.logger.error(traceback.format_exc())
+        return jsonify({
+            'error': 'Failed to fetch models',
+            'message': str(e),
+            'type': 'api_error'
+        }), 500
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     """Serve uploaded/generated files"""
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    try:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    except Exception as e:
+        app.logger.error(f"File serve error: {str(e)}")
+        app.logger.error(traceback.format_exc())
+        return jsonify({
+            'error': 'File not found or cannot be served',
+            'message': str(e),
+            'type': 'file_error'
+        }), 404
 
 @app.route('/api/test')
 def test_api():
