@@ -13,32 +13,40 @@ from PIL import Image
 from io import BytesIO
 
 app = Flask(__name__)
-app.secret_key = 'AIzaSyAwPNGNGidXAOoRYdtR43osnbWXNIxdLFs'  # Change this in production
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your-secret-key-here')  # Use environment variable
 
 # Configuration
-UPLOAD_FOLDER = 'uploads'
+UPLOAD_FOLDER = '/tmp' if os.environ.get('VERCEL') else 'uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'ico', 'heic', 'heif'}
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
-# Create upload directory if it doesn't exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Create upload directory if it doesn't exist (only for local development)
+if not os.environ.get('VERCEL'):
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_api_key():
     """Get API key from environment variable or key.txt file"""
+    # Priority 1: Environment variable (for Vercel deployment)
     api_key = os.environ.get('GEMINI_API_KEY')
-    if not api_key:
-        try:
-            with open('key.txt', 'r') as f:
-                api_key = f.read().strip()
-        except FileNotFoundError:
-            return None
-    return api_key
+    if api_key:
+        return api_key.strip()
+    
+    # Priority 2: Local key.txt file (for local development)
+    try:
+        with open('key.txt', 'r') as f:
+            api_key = f.read().strip()
+            if api_key:
+                return api_key
+    except FileNotFoundError:
+        pass
+    
+    return None
 
 def save_binary_file(file_name, data):
     """Save binary data to file"""
@@ -346,6 +354,9 @@ def test_api():
                 'message': f'连接测试失败: {error_str}',
                 'error_type': 'unknown'
             }), 500
+
+# Vercel WSGI handler
+app_handler = app
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5010)
